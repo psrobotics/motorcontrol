@@ -1,0 +1,12 @@
+# Build outputs in Debug/ and Release/.
+# The CLI build keeps the build *system* tracked (makefile, *.mk, objects.list,
+# linker scripts) but ignores generated artifacts so rebuilds don't pollute diffs.
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.map
+*.list
+!objects.list
+default.size.stdout

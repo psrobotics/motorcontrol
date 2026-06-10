@@ -1,0 +1,18 @@
+{
+  "cortex-debug.gdbPath": "gdb-multiarch",
+  "cortex-debug.openocdPath": "openocd",
+  "C_Cpp.default.compilerPath": "/usr/bin/arm-none-eabi-gcc",
+  "C_Cpp.default.cStandard": "gnu11",
+  "C_Cpp.default.defines": [
+    "USE_HAL_DRIVER",
+    "STM32F446xx",
+    "DEBUG"
+  ],
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/Core/Inc",
+    "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+    "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+    "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+    "${workspaceFolder}/Drivers/CMSIS/Include"
+  ]
+}

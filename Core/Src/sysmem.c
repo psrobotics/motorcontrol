@@ -49,6 +49,7 @@
 /* Includes */
 #include <errno.h>
 #include <stdio.h>
+#include <sys/types.h>		// caddr_t (newer newlib no longer pulls this in transitively)
 
 /* Variables */
 extern int errno;
