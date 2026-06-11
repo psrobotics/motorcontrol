@@ -40,24 +40,33 @@ void set_dtc(ControllerStruct *controller){
 }
 
 void analog_sample (ControllerStruct *controller){
-	/* Sampe ADCs */
+	/* Sample ADCs.
+	 * ADC1/ADC2/ADC3 run in triple-simultaneous regular mode, so a single trigger samples
+	 * phase A, phase B and Vbus at the same instant.  We read the result of the conversion
+	 * started at the end of the *previous* call -- in steady state that finished long ago
+	 * (conversion ~0.7us << 25us loop), so the EOC guard below is effectively a no-op and
+	 * there is no in-ISR busy-wait.  The same guard keeps the tight-loop caller
+	 * (zero_current) correct, where it genuinely waits for each conversion.  This replaces
+	 * the old blocking HAL_ADC_PollForConversion(.., HAL_MAX_DELAY), which both wasted ISR
+	 * time and could hang the ISR forever on a stuck ADC. */
+	while(!__HAL_ADC_GET_FLAG(&ADC_CH_MAIN, ADC_FLAG_EOC));	// wait for conversion complete (no-op in steady-state ISR)
+
+	int adc_ia = HAL_ADC_GetValue(&ADC_CH_IA);				// reading the data registers clears EOC
+	int adc_ib = HAL_ADC_GetValue(&ADC_CH_IB);
+	controller->adc_vbus_raw = HAL_ADC_GetValue(&ADC_CH_VBUS);
+
+	HAL_ADC_Start(&ADC_CH_MAIN);							// kick off next simultaneous conversion (done before next call)
+
 	/* Handle phase order swapping so that voltage/current/torque match encoder direction */
 	if(!PHASE_ORDER){
-		controller->adc_a_raw = HAL_ADC_GetValue(&ADC_CH_IA);
-		controller->adc_b_raw = HAL_ADC_GetValue(&ADC_CH_IB);
-		//adc_ch_ic = ADC_CH_IC;
+		controller->adc_a_raw = adc_ia;
+		controller->adc_b_raw = adc_ib;
 	}
 	else{
-		controller->adc_a_raw = HAL_ADC_GetValue(&ADC_CH_IB);
-		controller->adc_b_raw = HAL_ADC_GetValue(&ADC_CH_IA);
-		//adc_ch_ic = ADC_CH_IB;
+		controller->adc_a_raw = adc_ib;
+		controller->adc_b_raw = adc_ia;
 	}
 
-
-	HAL_ADC_Start(&ADC_CH_MAIN);
-	HAL_ADC_PollForConversion(&ADC_CH_MAIN, HAL_MAX_DELAY);
-
-	controller->adc_vbus_raw = HAL_ADC_GetValue(&ADC_CH_VBUS);
 	controller->v_bus = (float)controller->adc_vbus_raw*V_SCALE;
 
     controller->i_a = controller->i_scale*(float)(controller->adc_a_raw - controller->adc_a_offset);    // Calculate phase currents from ADC readings
@@ -137,6 +146,8 @@ void init_controller_params(ControllerStruct *controller){
     controller->ki_fw = .1f*controller->ki_d;
     controller->phase_order = PHASE_ORDER;
     controller->flux_linkage = KT/(1.5f*PPAIRS);
+    controller->inv_gr = 1.0f/GR;					// precompute reciprocals used every control cycle
+    controller->inv_kt_gr = 1.0f/(KT*GR);
     if(I_MAX <= 40.0f){controller->i_scale = I_SCALE;}
     else{controller->i_scale = 2.0f*I_SCALE;}
     for(int i = 0; i<128; i++)	// Approximate duty cycle linearization
@@ -233,8 +244,8 @@ void commutate(ControllerStruct *controller, EncoderStruct *encoder)
 
 		controller->theta_elec = encoder->elec_angle;
 		controller->dtheta_elec = encoder->elec_velocity;
-		controller->dtheta_mech = encoder->velocity/GR;
-		controller->theta_mech = encoder->angle_multiturn[0]/GR;
+		controller->dtheta_mech = encoder->velocity*controller->inv_gr;
+		controller->theta_mech = encoder->angle_multiturn[0]*controller->inv_gr;
 
        /// Commutation  ///
        dq0(controller->theta_elec, controller->i_a, controller->i_b, controller->i_c, &controller->i_d, &controller->i_q);    //dq0 transform on currents - 3.8 us
@@ -290,7 +301,7 @@ void commutate(ControllerStruct *controller, EncoderStruct *encoder)
 void torque_control(ControllerStruct *controller){
 	controller->t_ff_filt = 0.9f*controller->t_ff_filt + 0.1f*controller->t_ff;
     float torque_des = controller->kp*(controller->p_des - controller->theta_mech) + controller->t_ff_filt + controller->kd*(controller->v_des - controller->dtheta_mech);
-    controller->i_q_des = fast_fmaxf(fast_fminf(torque_des/(KT*GR), controller->i_max), -controller->i_max);
+    controller->i_q_des = fast_fmaxf(fast_fminf(torque_des*controller->inv_kt_gr, controller->i_max), -controller->i_max);
     if(controller->v_bus > V_BUS_MAX){controller->i_q_des = 0;}
     controller->i_d_des = 0.0f;
 

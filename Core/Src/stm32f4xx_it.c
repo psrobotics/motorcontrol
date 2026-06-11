@@ -297,6 +297,8 @@ void USART2_IRQHandler(void)
 
 void can_tx_rx(void){
 
+	if((CAN_H.Instance->RF0R & CAN_RF0R_FMP0) == 0){return;}	// no message pending in FIFO0 - skip the HAL call every ISR
+
 	int no_mesage = HAL_CAN_GetRxMessage(&CAN_H, CAN_RX_FIFO0, &can_rx.rx_header, can_rx.data);	// Read CAN
 	if(!no_mesage){
 		uint32_t TxMailbox;

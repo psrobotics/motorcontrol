@@ -20,25 +20,24 @@ void ps_warmup(EncoderStruct * encoder, int n){
 		while( ENC_SPI.State == HAL_SPI_STATE_BUSY );  					// wait for transmission complete
 		HAL_GPIO_WritePin(ENC_CS, GPIO_PIN_SET ); 	// CS high
 	}
+	__HAL_SPI_ENABLE(&ENC_SPI);		// leave SPI enabled so the register-level read in ps_sample works
 }
 
 void ps_sample(EncoderStruct * encoder, float dt){
 	/* updates EncoderStruct encoder with the latest sample
 	 * after elapsed time dt */
 
-	/* Shift around previous samples */
 	encoder->old_angle = encoder->angle_singleturn;
-	for(int i = N_POS_SAMPLES-1; i>0; i--){encoder->angle_multiturn[i] = encoder->angle_multiturn[i-1];}
-	//for(int i = N_POS_SAMPLES-1; i>0; i--){encoder->count_buff[i] = encoder->count_buff[i-1];}
-	//memmove(&encoder->angle_multiturn[1], &encoder->angle_multiturn[0], (N_POS_SAMPLES-1)*sizeof(float)); // this is much slower for some reason
 
-	/* SPI read/write */
-	encoder->spi_tx_word = ENC_READ_WORD;
-	HAL_GPIO_WritePin(ENC_CS, GPIO_PIN_RESET ); 	// CS low
-	HAL_SPI_TransmitReceive(&ENC_SPI, (uint8_t*)encoder->spi_tx_buff, (uint8_t *)encoder->spi_rx_buff, 1, 100);
-	while( ENC_SPI.State == HAL_SPI_STATE_BUSY );  					// wait for transmission complete
-	HAL_GPIO_WritePin(ENC_CS, GPIO_PIN_SET ); 	// CS high
-	encoder->raw = encoder ->spi_rx_word;
+	/* SPI read of the absolute encoder via direct registers (much lighter than
+	 * HAL_SPI_TransmitReceive + HAL_GPIO_WritePin in the control ISR, and with no
+	 * 100ms-timeout / busy-state spinning).  SPI3 is left enabled by ps_warmup. */
+	ENC_CS_LOW();									// CS low
+	ENC_SPI.Instance->DR = ENC_READ_WORD;			// start the 16-bit frame
+	while(!(ENC_SPI.Instance->SR & SPI_SR_RXNE));	// wait for the response word
+	encoder->raw = ENC_SPI.Instance->DR;			// read result (clears RXNE)
+	while(ENC_SPI.Instance->SR & SPI_SR_BSY);		// wait for bus idle before raising CS
+	ENC_CS_HIGH();									// CS high
 
 	/* Linearization */
 	int off_1 = encoder->offset_lut[(encoder->raw)>>9];				// lookup table lower entry
@@ -77,21 +76,16 @@ void ps_sample(EncoderStruct * encoder, float dt){
 	/* Multi-turn position */
 	encoder->angle_multiturn[0] = encoder->angle_singleturn + TWO_PI_F*(float)encoder->turns;
 
-	/* Velocity */
-	/*
-	// Attempt at a moving least squares.  Wasn't any better
-		float m = (float)N_POS_SAMPLES;
-		float w = 1.0f/m;
-		float q = 12.0f/(m*m*m - m);
-		float c1 = 0.0f;
-		float ibar = (m - 1.0f)/2.0f;
-		for(int i = 0; i<N_POS_SAMPLES; i++){
-			c1 += encoder->angle_multiturn[i]*q*(i - ibar);
-		}
-		encoder->vel2 = -c1/dt;
-*/
-	//encoder->velocity = vel2
-	encoder->velocity = (encoder->angle_multiturn[0] - encoder->angle_multiturn[N_POS_SAMPLES-1])/(dt*(float)(N_POS_SAMPLES-1));
+	/* Velocity: fixed-window finite difference over (N_POS_SAMPLES-1) intervals, using a
+	 * ring buffer instead of shifting the whole history array every sample.  ring_head
+	 * holds the oldest entry (written N_POS_SAMPLES-1 calls ago); read it, then overwrite
+	 * with the newest.  Identical window to the previous array-shift implementation. */
+	float newest = encoder->angle_multiturn[0];
+	float oldest = encoder->vel_ring[encoder->ring_head];
+	encoder->vel_ring[encoder->ring_head] = newest;
+	encoder->ring_head++;
+	if(encoder->ring_head >= (N_POS_SAMPLES-1)){encoder->ring_head = 0;}
+	encoder->velocity = (newest - oldest)/(dt*(float)(N_POS_SAMPLES-1));
 	encoder->elec_velocity = encoder->ppairs*encoder->velocity;
 
 }

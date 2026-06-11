@@ -31,6 +31,8 @@ typedef struct{
 	int count_buff[N_POS_SAMPLES];
 	int m_zero, e_zero;
 	int offset_lut[N_LUT];
+	float vel_ring[N_POS_SAMPLES];	// ring buffer of multiturn position for velocity finite-difference (avoids array shift)
+	int ring_head;					// index in vel_ring of the oldest entry (about to be overwritten)
 	uint8_t first_sample;
 } EncoderStruct;
 

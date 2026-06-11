@@ -57,8 +57,11 @@ float uint_to_float(int x_int, float x_min, float x_max, int bits){
     }
 
 float sin_lut(float theta){
-	theta = fmodf(theta, TWO_PI_F);
-	theta = theta<0 ? theta + TWO_PI_F : theta;
+	/* Range-reduce to [0, 2*pi) without fmodf.  theta is always bounded here (an electrical
+	 * angle in [0,2pi) plus a small lead term, or pi/2 minus that), so at most one or two
+	 * subtractions are needed -- far cheaper than a libm fmodf call on every sin/cos. */
+	while(theta >= TWO_PI_F){theta -= TWO_PI_F;}
+	while(theta < 0.0f){theta += TWO_PI_F;}
 
 	return sin_tab[(int) (LUT_MULT*theta)];
 }

@@ -28,7 +28,11 @@
 
 /* SPI encoder */
 #define ENC_SPI			hspi3				// Encoder SPI handle
-#define ENC_CS			GPIOA, GPIO_PIN_15	// Encoder SPI CS pin
+#define ENC_CS			GPIOA, GPIO_PIN_15	// Encoder SPI CS pin (HAL form, used at init)
+/* Fast direct-register CS toggling (PA15) for the control ISR.  BSRR is atomic: low half
+ * sets pins, high half (<<16) resets them.  Keep in sync with ENC_CS above. */
+#define ENC_CS_LOW()	(GPIOA->BSRR = (uint32_t)GPIO_PIN_15 << 16U)
+#define ENC_CS_HIGH()	(GPIOA->BSRR = (uint32_t)GPIO_PIN_15)
 #define ENC_CPR			65536				// Encoder counts per revolution
 #define INV_CPR			1.0f/ENC_CPR
 #define ENC_READ_WORD	0x00				// Encoder read command
@@ -50,8 +54,8 @@
 #define V_BUS_MAX			40.0f			// max drive voltage (faults above this)
 
 /* Current controller */
-#define L_D .00004f				// D axis inductance
-#define L_Q .00004f				// Q axis inductance
+#define L_D .000368f			// D axis inductance (GIM6010-8: 368uH phase inductance)
+#define L_Q .000368f			// Q axis inductance (GIM6010-8: 368uH phase inductance)
 #define K_D .1f                    // Loop gain,  Volts/Amp
 #define K_Q .1f                    // Loop gain,  Volts/Amp
 #define K_SCALE 0.00012f             // K_loop/Loop BW (Hz) 0.0042

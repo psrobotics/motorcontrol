@@ -10,3 +10,6 @@
 *.list
 !objects.list
 default.size.stdout
+
+# Local reference firmware/datasheets (third-party, not part of this project)
+/ref/
