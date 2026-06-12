@@ -254,6 +254,11 @@ int main(void)
   state.ready = 1;
 
 
+  /* Enable the DWT cycle counter (used to monitor control-ISR execution time) */
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
   /* Turn on interrupts */
   HAL_UART_Receive_IT(&huart2, (uint8_t *)Serial2RxBuffer, 1);
   HAL_TIM_Base_Start_IT(&htim1);
@@ -264,6 +269,9 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  /* Background (non-ISR) work: all blocking console I/O lives here now */
+	  fsm_service(&state);								// drain serial input + render deferred console output
+	  if(state.state == ENCODER_MODE){ ps_print(&comm_encoder, 0); }	// stream encoder values at the loop rate (~10Hz)
 
 	  HAL_Delay(100);
 	  drv_print_faults(drv);

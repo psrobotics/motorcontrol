@@ -50,6 +50,7 @@
 #define DTC_MIN 			0.0f          	// Min duty cycle
 #define DTC_COMP 			0.000f          // deadtime compensation (100 ns / 25 us)
 #define DT					.000025f		// Loop period
+#define ISR_BUDGET_CYCLES	4500u			// CPU cycles in one control period (180MHz / 40kHz) - ISR overrun threshold
 #define EN_ENC_LINEARIZATION 1				// Enable/disable encoder linearization
 #define V_BUS_MAX			40.0f			// max drive voltage (faults above this)
 

@@ -18,6 +18,48 @@
 #include "position_sensor.h"
 #include "drv8323.h"
 
+ /* --- Background console / serial-input deferral -------------------------------------
+  * Keeps all blocking I/O (printf, flash) out of the control and UART ISRs.  The UART ISR
+  * only enqueues bytes; fsm_service() (run from the main loop) drains them and renders any
+  * console output that ISR-context code requested via fsmstate->print_req. */
+ #define FSM_RX_BUF_SIZE 64u
+ static volatile char fsm_rx_buf[FSM_RX_BUF_SIZE];
+ static volatile uint16_t fsm_rx_head = 0, fsm_rx_tail = 0;
+
+ void fsm_rx_push(char c){
+	 /* Called from the USART RX ISR: enqueue one byte and return immediately. */
+	 uint16_t next = (uint16_t)((fsm_rx_head + 1u) % FSM_RX_BUF_SIZE);
+	 if(next != fsm_rx_tail){					// single-producer/single-consumer; drop on overflow (bounded)
+		 fsm_rx_buf[fsm_rx_head] = c;
+		 fsm_rx_head = next;
+	 }
+ }
+
+ void fsm_service(FSMStruct * fsmstate){
+	 /* Runs in the main() background loop -- never in an ISR -- so it is free to block on
+	  * UART printf and flash writes. */
+
+	 /* Drain queued serial bytes through the FSM (parsing/printf/flash now happen here) */
+	 while(fsm_rx_tail != fsm_rx_head){
+		 char c = fsm_rx_buf[fsm_rx_tail];
+		 fsm_rx_tail = (uint16_t)((fsm_rx_tail + 1u) % FSM_RX_BUF_SIZE);
+		 update_fsm(fsmstate, c);
+	 }
+
+	 /* Atomically grab and clear pending render requests (set from ISR context) */
+	 __disable_irq();
+	 uint32_t req = fsmstate->print_req;
+	 fsmstate->print_req = 0;
+	 __enable_irq();
+
+	 if(req & PRINT_MENU){ enter_menu_state(); }
+	 if(req & PRINT_SETUP){ enter_setup_state(); }
+	 if(req & PRINT_ZERO){ printf("\n\r  Saved new zero position:  %d\n\r\n\r", M_ZERO); }
+	 if(req & PRINT_CAL_DONE){
+		 printf("E_ZERO: %d  %f\r\n", E_ZERO, TWO_PI_F*fmodf((comm_encoder.ppairs*(float)(-E_ZERO))/((float)ENC_CPR), 1.0f));
+	 }
+ }
+
  void run_fsm(FSMStruct * fsmstate){
 	 /* run_fsm is run every commutation interrupt cycle */
 
@@ -45,7 +87,7 @@
 				 /* Exit calibration mode when done */
 				 //for(int i = 0; i<128*PPAIRS; i++){printf("%d\r\n", error_array[i]);}
 				 E_ZERO = comm_encoder_cal.ezero;
-				 printf("E_ZERO: %d  %f\r\n", E_ZERO, TWO_PI_F*fmodf((comm_encoder.ppairs*(float)(-E_ZERO))/((float)ENC_CPR), 1.0f));
+				 fsmstate->print_req |= PRINT_CAL_DONE;		// defer E_ZERO printout to fsm_service (background)
 				 memcpy(&comm_encoder.offset_lut, comm_encoder_cal.lut_arr, sizeof(comm_encoder.offset_lut));
 				 memcpy(&ENCODER_LUT, comm_encoder_cal.lut_arr, sizeof(comm_encoder_cal.lut_arr));
 				 //for(int i = 0; i<128; i++){printf("%d\r\n", ENCODER_LUT[i]);}
@@ -76,7 +118,7 @@
 			 break;
 
 		 case ENCODER_MODE:
-			 ps_print(&comm_encoder, 100);
+			 /* encoder values are streamed from the background loop, not here in the ISR */
 			 break;
 
 		 case INIT_TEMP_MODE:
@@ -91,12 +133,10 @@
 
 		switch(fsmstate->state){
 				case MENU_MODE:
-				//printf("Entering Main Menu\r\n");
-				enter_menu_state();
+				fsmstate->print_req |= PRINT_MENU;		// defer menu render to fsm_service (background)
 				break;
 			case SETUP_MODE:
-				//printf("Entering Setup\r\n");
-				enter_setup_state();
+				fsmstate->print_req |= PRINT_SETUP;		// defer setup render to fsm_service (background)
 				break;
 			case ENCODER_MODE:
 				//printf("Entering Encoder Mode\r\n");
@@ -200,7 +240,7 @@
 					preference_writer_flush(&prefs);
 					preference_writer_close(&prefs);
 					preference_writer_load(prefs);
-					printf("\n\r  Saved new zero position:  %d\n\r\n\r", M_ZERO);
+					fsmstate->print_req |= PRINT_ZERO;		// defer confirmation to fsm_service (background)
 					break;
 				}
 			break;
@@ -240,6 +280,10 @@
 	    printf(" e - Display Encoder\n\r");
 	    printf(" z - Set Zero Position\n\r");
 	    printf(" esc - Exit to Menu\n\r");
+	    printf("\n\r Control ISR: %lu cyc max (~%lu us / 25us budget)   overruns: %lu\n\r",
+	    		(unsigned long)controller.isr_cycles_max,
+	    		(unsigned long)(controller.isr_cycles_max/180u),	// 180 CPU cycles per us at 180MHz
+	    		(unsigned long)controller.isr_overruns);
 
 	    //gpio.led->write(0);
  }

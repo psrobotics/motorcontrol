@@ -31,6 +31,7 @@ typedef struct{
     int adc_a_offset, adc_b_offset, adc_c_offset, adc_vbus_offset; 		// ADC offsets
     float i_d_des, i_q_des, i_d_des_filt, i_q_des_filt, t_ff_filt;     // Current references
     int loop_count;                                         // Degubbing counter
+    uint32_t isr_cycles, isr_cycles_max, isr_overruns;      // Control-ISR execution-time monitor (DWT cycles)
     int timeout;                                            // Watchdog counter
     int mode;
     int ovp_flag;                                           // Over-voltage flag

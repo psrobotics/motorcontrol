@@ -252,6 +252,7 @@ void TIM1_UP_TIM10_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM1_UP_TIM10_IRQn 0 */
 	//HAL_GPIO_WritePin(LED, GPIO_PIN_SET );	// Useful for timing
+	uint32_t _isr_t0 = DWT->CYCCNT;				// control-ISR execution-time monitor
 
 	/* Sample ADCs */
 	analog_sample(&controller);
@@ -267,6 +268,12 @@ void TIM1_UP_TIM10_IRQHandler(void)
 
 	/* increment loop count */
 	controller.loop_count++;
+
+	/* Update ISR timing monitor (unsigned subtraction is wrap-safe) */
+	uint32_t _isr_dt = DWT->CYCCNT - _isr_t0;
+	controller.isr_cycles = _isr_dt;
+	if(_isr_dt > controller.isr_cycles_max){ controller.isr_cycles_max = _isr_dt; }
+	if(_isr_dt > ISR_BUDGET_CYCLES){ controller.isr_overruns++; }
 	//HAL_GPIO_WritePin(LED, GPIO_PIN_RESET );
 
   /* USER CODE END TIM1_UP_TIM10_IRQn 0 */
@@ -283,8 +290,7 @@ void USART2_IRQHandler(void)
   /* USER CODE BEGIN USART2_IRQn 0 */
 	HAL_UART_IRQHandler(&huart2);
 
-	char c = Serial2RxBuffer[0];
-	update_fsm(&state, c);
+	fsm_rx_push(Serial2RxBuffer[0]);	// enqueue byte; parsing/printf/flash happen in main loop (fsm_service)
 
   /* USER CODE END USART2_IRQn 0 */
   HAL_UART_IRQHandler(&huart2);
