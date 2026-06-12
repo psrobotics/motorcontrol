@@ -148,8 +148,12 @@ void init_controller_params(ControllerStruct *controller){
     controller->flux_linkage = KT/(1.5f*PPAIRS);
     controller->inv_gr = 1.0f/GR;					// precompute reciprocals used every control cycle
     controller->inv_kt_gr = 1.0f/(KT*GR);
-    if(I_MAX <= 40.0f){controller->i_scale = I_SCALE;}
-    else{controller->i_scale = 2.0f*I_SCALE;}
+#if DRV_USE_SPI
+    if(I_MAX <= 40.0f){controller->i_scale = I_SCALE;}			// 40X CSA gain (set over SPI)
+    else{controller->i_scale = 2.0f*I_SCALE;}					// 20X CSA gain, selected over SPI for >40A
+#else
+    controller->i_scale = I_SCALE * (40.0f/(float)DRV_HW_CSA_GAIN);	// gain fixed by the GAIN strap; I_SCALE is defined for 40X
+#endif
     for(int i = 0; i<128; i++)	// Approximate duty cycle linearization
     {
         controller->inverter_tab[i] = 1.0f + 1.2f*exp(-0.0078125f*i/.032f);

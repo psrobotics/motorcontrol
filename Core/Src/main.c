@@ -210,9 +210,13 @@ int main(void)
   HAL_ADC_Start(&hadc3);
 
   /* DRV8323 setup */
+#if DRV_USE_SPI
   HAL_GPIO_WritePin(DRV_CS, GPIO_PIN_SET ); 	// CS high
-  HAL_GPIO_WritePin(ENABLE_PIN, GPIO_PIN_SET );
+#endif
+  HAL_GPIO_WritePin(ENABLE_PIN, GPIO_PIN_SET );	// wake the gate driver (both variants)
   HAL_Delay(1);
+#if DRV_USE_SPI
+  /* DRV8323RS: configure the gate driver over SPI (RH does this with strap resistors) */
   //drv_calibrate(drv);
   HAL_Delay(1);
   drv_write_DCR(drv, 0x0, DIS_GDF_EN, 0x0, PWM_MODE_3X, 0x0, 0x0, 0x0, 0x0, 0x1);
@@ -224,13 +228,15 @@ int main(void)
   HAL_Delay(1);
   drv_write_CSACR(drv, 0x0, 0x1, 0x0, CSA_GAIN, 0x1, 0x0, 0x0, 0x0, SEN_LVL_0_25);
   HAL_Delay(1);
-  zero_current(&controller);
+#endif
+  zero_current(&controller);					// measure ADC current-sense offsets (both variants)
   HAL_Delay(1);
+#if DRV_USE_SPI
   drv_write_OCPCR(drv, TRETRY_50US, DEADTIME_50NS, OCP_RETRY, OCP_DEG_8US, VDS_LVL_0_45);
   HAL_Delay(1);
-  drv_disable_gd(drv);
+#endif
+  drv_disable_gd(drv);							// start with the bridge disabled
   HAL_Delay(1);
-  //drv_enable_gd(drv);   */
   printf("ADC A OFFSET: %d     ADC B OFFSET: %d\r\n", controller.adc_a_offset, controller.adc_b_offset);
 
   /* Turn on PWM */

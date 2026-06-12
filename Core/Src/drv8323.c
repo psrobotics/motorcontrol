@@ -54,18 +54,36 @@ void drv_write_CSACR(DRVStruct drv, int CSA_FET, int VREF_DIV, int LS_REF, int C
 	drv_spi_write(&drv, val);
 }
 void drv_enable_gd(DRVStruct drv){
-	uint16_t val = (drv_read_register(drv, DCR)) & (~(0x1<<2));
+#if DRV_USE_SPI
+	uint16_t val = (drv_read_register(drv, DCR)) & (~(0x1<<2));	// clear COAST -> gate drivers active
 	drv_write_register(drv, DCR, val);
+#else
+	(void)drv;
+	HAL_GPIO_WritePin(ENABLE_PIN, GPIO_PIN_SET);	// RH: wake the gate driver (note: ~1ms charge-pump wakeup)
+#endif
 }
 void drv_disable_gd(DRVStruct drv){
-	uint16_t val = (drv_read_register(drv, DCR)) | (0x1<<2);
+#if DRV_USE_SPI
+	uint16_t val = (drv_read_register(drv, DCR)) | (0x1<<2);		// set COAST -> outputs Hi-Z
 	drv_write_register(drv, DCR, val);
+#else
+	(void)drv;
+	HAL_GPIO_WritePin(ENABLE_PIN, GPIO_PIN_RESET);	// RH: disable bridge via sleep (no SPI COAST on the H variant)
+#endif
 }
 void drv_calibrate(DRVStruct drv){
 	uint16_t val = (0x1<<4) + (0x1<<3) + (0x1<<2);
 	drv_write_register(drv, CSACR, val);
 }
 void drv_print_faults(DRVStruct drv){
+#if !DRV_USE_SPI
+    /* DRV8323RH has no fault registers - only the open-drain nFAULT pin (active low). */
+	(void)drv;
+  #ifdef DRV_NFAULT
+	if(HAL_GPIO_ReadPin(DRV_NFAULT) == GPIO_PIN_RESET){ printf("\n\rDRV nFAULT asserted\n\r"); }
+  #endif
+	return;
+#else
     uint16_t val1 = drv_read_FSR1(drv);
     uint16_t val2 = drv_read_FSR2(drv);
 
@@ -93,5 +111,5 @@ void drv_print_faults(DRVStruct drv){
     if(val2 & (1<<2)){printf("VGS_LB\n\r");}
     if(val2 & (1<<1)){printf("VGS_HC\n\r");}
     if(val2 & (1)){printf("VGS_LC\n\r");}
-
+#endif
 }

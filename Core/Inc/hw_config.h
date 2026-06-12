@@ -23,8 +23,26 @@
 
 /* DRV Gate drive */
 #define ENABLE_PIN 		GPIOA, GPIO_PIN_11  // Enable gate drive pin.
-#define DRV_SPI			hspi1				// DRV SPI handle
-#define DRV_CS			GPIOA, GPIO_PIN_4	// DRV CS pin
+#define DRV_SPI			hspi1				// DRV SPI handle (DRV8323RS only)
+#define DRV_CS			GPIOA, GPIO_PIN_4	// DRV CS pin (DRV8323RS only)
+
+/* ===== DRV8323 variant selection (EASY CONFIG) =====================================
+ * Match this to the populated gate-driver chip:
+ *   DRV_USE_SPI 1  ->  DRV8323RS : firmware sets gain / OCP / PWM-mode / IDRIVE over SPI
+ *   DRV_USE_SPI 0  ->  DRV8323RH : those are fixed by board STRAP RESISTORS (table below)
+ *
+ * --- DRV8323RH strap resistors that reproduce this firmware's old SPI defaults -------
+ *   MODE   = 47k to AGND   -> 3x PWM mode
+ *   GAIN   = tie to DVDD   -> 40 V/V    (set DRV_HW_CSA_GAIN below to match!)
+ *   VDS    = Hi-Z (float)  -> 0.6V OCP trip   [75k to AGND for ~0.26V if you want tighter]
+ *   IDRIVE = Hi-Z (float)  -> 120mA src / 240mA sink
+ *   nFAULT -> external pull-up to DVDD ;  CAL -> tie low (or a GPIO for auto offset cal)
+ *
+ * DRV_HW_CSA_GAIN MUST equal the gain set by the GAIN strap (5/10/20/40 V/V) or the
+ * current scaling (i_scale) will be wrong.  GAIN = 40 keeps I_SCALE unchanged.            */
+#define DRV_USE_SPI		1					// 1 = DRV8323RS (SPI),  0 = DRV8323RH (hardware strap)
+#define DRV_HW_CSA_GAIN	40					// (RH only) gain set by the GAIN strap: 5 / 10 / 20 / 40
+//#define DRV_NFAULT	GPIOB, GPIO_PIN_X	// (RH only) uncomment+set if nFAULT is wired to the MCU
 
 /* SPI encoder */
 #define ENC_SPI			hspi3				// Encoder SPI handle
