@@ -14,7 +14,7 @@
 void ps_warmup(EncoderStruct * encoder, int n){
 	/* Hall position sensors noisy on startup.  Take a bunch of samples to clear this data */
 	for(int i = 0; i<n; i++){
-		encoder->spi_tx_word = 0x0000;
+		encoder->spi_tx_word = ENC_WARMUP_CMD;			// benign read command (encoder-type dependent)
 		HAL_GPIO_WritePin(ENC_CS, GPIO_PIN_RESET ); 	// CS low
 		HAL_SPI_TransmitReceive(&ENC_SPI, (uint8_t*)encoder->spi_tx_buff, (uint8_t *)encoder->spi_rx_buff, 1, 100);
 		while( ENC_SPI.State == HAL_SPI_STATE_BUSY );  					// wait for transmission complete
@@ -32,17 +32,36 @@ void ps_sample(EncoderStruct * encoder, float dt){
 	/* SPI read of the absolute encoder via direct registers (much lighter than
 	 * HAL_SPI_TransmitReceive + HAL_GPIO_WritePin in the control ISR, and with no
 	 * 100ms-timeout / busy-state spinning).  SPI3 is left enabled by ps_warmup. */
+#if ENC_TYPE == ENC_TYPE_MT6816
+	/* MT6816: 14-bit angle split across reg 0x03 (Angle<13:6>) and 0x04 (Angle<5:0> in [7:2]).
+	 * Read cmd = (1<<15)|(addr<<8); the register byte returns in the low byte of the frame. */
+	ENC_CS_LOW();
+	ENC_SPI.Instance->DR = 0x8300;					// read reg 0x03
+	while(!(ENC_SPI.Instance->SR & SPI_SR_RXNE));
+	uint16_t enc_hi = ENC_SPI.Instance->DR;
+	while(ENC_SPI.Instance->SR & SPI_SR_BSY);
+	ENC_CS_HIGH();
+	ENC_CS_LOW();
+	ENC_SPI.Instance->DR = 0x8400;					// read reg 0x04
+	while(!(ENC_SPI.Instance->SR & SPI_SR_RXNE));
+	uint16_t enc_lo = ENC_SPI.Instance->DR;
+	while(ENC_SPI.Instance->SR & SPI_SR_BSY);
+	ENC_CS_HIGH();
+	encoder->raw = (int)(((enc_hi & 0xFF) << 6) | ((enc_lo & 0xFF) >> 2));	// assemble 14-bit angle
+	// (enc_lo>>1)&0x1 = no-magnet warning,  enc_lo&0x1 = parity   (available for fault checks)
+#else
 	ENC_CS_LOW();									// CS low
 	ENC_SPI.Instance->DR = ENC_READ_WORD;			// start the 16-bit frame
 	while(!(ENC_SPI.Instance->SR & SPI_SR_RXNE));	// wait for the response word
 	encoder->raw = ENC_SPI.Instance->DR;			// read result (clears RXNE)
 	while(ENC_SPI.Instance->SR & SPI_SR_BSY);		// wait for bus idle before raising CS
 	ENC_CS_HIGH();									// CS high
+#endif
 
-	/* Linearization */
-	int off_1 = encoder->offset_lut[(encoder->raw)>>9];				// lookup table lower entry
-	int off_2 = encoder->offset_lut[((encoder->raw>>9)+1)%128];		// lookup table higher entry
-	int off_interp = off_1 + ((off_2 - off_1)*(encoder->raw - ((encoder->raw>>9)<<9))>>9);     // Interpolate between lookup table entries
+	/* Linearization (128-entry LUT over one ENC_CPR; shift = log2(ENC_CPR/128) = ENC_LUT_SHIFT) */
+	int off_1 = encoder->offset_lut[(encoder->raw)>>ENC_LUT_SHIFT];				// lookup table lower entry
+	int off_2 = encoder->offset_lut[((encoder->raw>>ENC_LUT_SHIFT)+1)%128];		// lookup table higher entry
+	int off_interp = off_1 + ((off_2 - off_1)*(encoder->raw - ((encoder->raw>>ENC_LUT_SHIFT)<<ENC_LUT_SHIFT))>>ENC_LUT_SHIFT);
 	encoder->count = encoder->raw + off_interp;
 
 

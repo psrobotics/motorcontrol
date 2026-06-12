@@ -51,9 +51,34 @@
  * sets pins, high half (<<16) resets them.  Keep in sync with ENC_CS above. */
 #define ENC_CS_LOW()	(GPIOA->BSRR = (uint32_t)GPIO_PIN_15 << 16U)
 #define ENC_CS_HIGH()	(GPIOA->BSRR = (uint32_t)GPIO_PIN_15)
-#define ENC_CPR			65536				// Encoder counts per revolution
+
+/* ===== Encoder type selection (EASY CONFIG) ========================================
+ * ENC_TYPE_ORIG   : original board sensor - one 16-bit SPI frame, angle read straight from
+ *                   the frame, 16-bit (65536 CPR), SPI mode 0.
+ * ENC_TYPE_MT6816 : MagnTek MT6816 - 14-bit (16384 CPR), SPI mode 3, TWO register reads
+ *                   (0x03 = Angle<13:6>, 0x04 = Angle<5:0> + flags), clock <= 15.6MHz.
+ * The matching SPI mode / prescaler is applied in spi.c via the ENC_SPI_* macros below.   */
+#define ENC_TYPE_ORIG	0
+#define ENC_TYPE_MT6816	1
+#define ENC_TYPE		ENC_TYPE_ORIG		// <-- set to ENC_TYPE_MT6816 when an MT6816 is fitted
+
+#if ENC_TYPE == ENC_TYPE_MT6816
+  #define ENC_CPR			16384					// 14-bit
+  #define ENC_LUT_SHIFT		7						// log2(ENC_CPR/128): 16384/128 = 2^7
+  #define ENC_SPI_CPOL		SPI_POLARITY_HIGH		// MT6816 = SPI mode 3 (CPOL=1, CPHA=1)
+  #define ENC_SPI_CPHA		SPI_PHASE_2EDGE
+  #define ENC_SPI_PRESCALER	SPI_BAUDRATEPRESCALER_4	// SPI3 45MHz/4 = 11.25MHz (< 15.6MHz max)
+  #define ENC_WARMUP_CMD	0x8300					// benign read of reg 0x03 (R/W=1, addr=0x03)
+#else
+  #define ENC_CPR			65536					// 16-bit
+  #define ENC_LUT_SHIFT		9						// log2(ENC_CPR/128): 65536/128 = 2^9
+  #define ENC_SPI_CPOL		SPI_POLARITY_LOW		// original sensor = SPI mode 0
+  #define ENC_SPI_CPHA		SPI_PHASE_1EDGE
+  #define ENC_SPI_PRESCALER	SPI_BAUDRATEPRESCALER_2
+  #define ENC_WARMUP_CMD	0x0000
+#endif
 #define INV_CPR			1.0f/ENC_CPR
-#define ENC_READ_WORD	0x00				// Encoder read command
+#define ENC_READ_WORD	0x00				// (original sensor) single-frame read command
 
 /* Misc. GPIO */
 #define LED         	GPIOC, GPIO_PIN_5	// LED Pin
